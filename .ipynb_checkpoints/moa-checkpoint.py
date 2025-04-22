@@ -6,7 +6,7 @@ from together import AsyncTogether, Together
 
 client = Together(api_key=os.environ.get("TOGETHER_API_KEY"))
 async_client = AsyncTogether(api_key=os.environ.get("TOGETHER_API_KEY"))
-user_prompt = "A farmer has some chickens and cows. In total, there are 35 heads and 94 legs. How many chickens and how many cows does the farmer have?."
+user_prompt = "What are 3 fun things to do in SF?"
 reference_models = [
     "meta-llama/Llama-3.3-70B-Instruct-Turbo",
     "Qwen/Qwen2.5-72B-Instruct-Turbo",

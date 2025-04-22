@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  moa_jupyter:
+    build: .
+    container_name: moa_jupyter_container
+    environment:
+      - TOGETHER_API_KEY=${TOGETHER_API_KEY}
+    volumes:
+      - .:/app
+    ports:
+      - "8888:8888"
+    command: >
+      jupyter notebook --ip=0.0.0.0 --no-browser --allow-root --NotebookApp.token=''
