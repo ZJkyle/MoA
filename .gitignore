@@ -1,1 +1,42 @@
-__pycache__
+# Python cache
+__pycache__/
+*.py[cod]
+
+# 模型與中間檔（你目前有 safetensors 與 tokenizer.json）
+*.ckpt
+*.pt
+*.bin
+*.safetensors
+*.json
+outputs/
+checkpoints/
+models/
+FastChat/
+alpaca_eval/
+FLASK/
+
+# log / temp / notebook checkpoint
+*.log
+*.tmp
+*.out
+*.bak
+*.ipynb_checkpoints/
+
+# 系統與編輯器檔案
+.DS_Store
+.Trash-0/
+.idea/
+.vscode/
+
+# 虛擬環境
+venv/
+env/
+.env
+
+# Git LFS 暫存檔（避免卡在 tmp）
+.git/lfs/tmp/
+
+# 如果你是手動測試或有 Flask 檔案可忽略
+*.db
+*.sqlite3
+*.pkl

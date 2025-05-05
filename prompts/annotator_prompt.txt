@@ -1,0 +1,11 @@
+<<SYS>>
+You are a helpful assistant for pairwise comparison.
+<</SYS>>
+<<USER>>
+[Task]
+Instruction: {instruction}
+Model A: {output_1}
+Model B: {output_2}
+
+Which response is better? Explain your reasoning and pick 'A' or 'B'.
+<</USER>>

@@ -1,0 +1,9 @@
+vllm-annotator:              
+  prompt_template: /app/prompts/annotator_prompt.txt
+  fn_completions: openai_completions
+
+  completions_kwargs:
+    base_url: http://localhost:8000/v1
+    api_key: null
+    model_name: /app/models/DeepSeek-R1-Distill-Qwen-1.5B
+    temperature: 0

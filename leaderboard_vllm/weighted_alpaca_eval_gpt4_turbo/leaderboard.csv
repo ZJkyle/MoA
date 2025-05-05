@@ -1,0 +1,2 @@
+,win_rate,standard_error,mode,avg_length,n_wins,n_wins_base,n_draws,n_total,discrete_win_rate,length_controlled_winrate,lc_standard_error
+Qwen/Qwen2.5-7B-Instruct-Turbo-together,65.9811738687673,1.547886139064858,community,2008,509,258,3,770,66.2987012987013,41.52114814059813,0.5451921499975878

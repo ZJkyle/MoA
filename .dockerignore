@@ -1,0 +1,19 @@
+# 忽略不需要進入Docker image的東西
+__pycache__/
+.ipynb_checkpoints/
+*.pyc
+*.pyo
+*.pyd
+*.swp
+*.swo
+.DS_Store
+*.egg-info/
+Trash/
+.Trash-0
+output/
+outputs/
+leaderboard_small_model/
+*.log
+*.tmp
+*.bak
+.env
