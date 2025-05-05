@@ -2,6 +2,7 @@ import abc
 import json
 import logging
 import os
+from datetime import datetime
 from functools import partial
 from pathlib import Path
 from typing import Any, Callable, Optional, Sequence, Type, Union
@@ -9,7 +10,9 @@ from typing import Any, Callable, Optional, Sequence, Type, Union
 import numpy as np
 import pandas as pd
 
-from .. import completion_parsers, constants, processors, utils
+import alpaca_eval
+
+from .. import completion_parsers, constants, processors, types, utils
 from ..decoders import get_fn_completions
 
 CURRENT_DIR = Path(__file__).parent
@@ -23,11 +26,11 @@ class BaseAnnotator(abc.ABC):
 
     Parameters
     ----------
-    annotators_config : Path or list of dict, optional
-        A dictionary or path to a yaml file containing the configuration for the pool of annotators. If a directory,
-        we search for 'configs.yaml' in it. The keys in the first  dictionary should be the annotator's name, and
-        the value should be a dictionary of the annotator's configuration which should have the following keys:
-        The path is relative to `base_dir` directory.
+    annotators_config : Path, optional
+        A path to a yaml file containing the configuration for the pool of annotators. The path can be absolute or
+        relative to `base_dir` directory. If a directory, we search for 'configs.yaml' in it. After loading, the keys
+        in the first dictionary should be the annotator's name, and the value should be a dictionary of the annotator's
+        configuration which should have the following keys:
         - prompt_template (str): a prompt template or path to it. The template should contain placeholders for keys in
             the example dictionary, typically {instruction} and {output_1} {output_2}.
         - fn_completions (str): function in `alpaca_farm.decoders` for completions. Needs to accept as first argument
@@ -50,17 +53,20 @@ class BaseAnnotator(abc.ABC):
         Keys use to distinguish the example.
 
     other_output_keys_to_keep : sequence of str, optional
-        Other output columns to store besides the annotations.
+        Other output columns to store besides the annotations. You can use `{annotation_key}` to refer to the name
+        of the annotation column.
 
     other_input_keys_to_keep : sequence of str, optional
-        Other columns to keep from the input dataframe besides the primary keys.
+        Other columns to keep from the input dataframe besides the primary keys. You can use `{annotation_key}` to refer
+        to the name of the annotation column.
 
     is_store_missing_annotations : bool, optional
         Whether to store missing annotations. If True it avoids trying to reannotate examples that have errors.
 
-    base_dir : Path, optional
+    base_dir : Path or list of Path, optional
         Path to the directory containing the annotators configs. I.e. annotators_config will be relative
-        to this directory. If None uses self.DEFAULT_BASE_DIR
+        to this directory. If None uses self.DEFAULT_BASE_DIR. If a list we will use the first such that
+        annotators_config can be loaded.
 
     is_raise_if_missing_primary_keys : bool, optional
         Whether to ensure that the primary keys are in the example dictionary. If True, raises an error.
@@ -85,23 +91,26 @@ class BaseAnnotator(abc.ABC):
     def __init__(
         self,
         primary_keys: Sequence[str],
-        annotators_config: Union[utils.AnyPath, list[dict[str, Any]]] = constants.DEFAULT_ANNOTATOR_CONFIG,
+        annotators_config: Union[types.AnyPath] = constants.DEFAULT_ANNOTATOR_CONFIG,
         seed: Optional[int] = 0,
         is_avoid_reannotations: bool = True,
         other_output_keys_to_keep: Sequence[str] = (
-            "price_per_example",
-            "time_per_example",
-            "raw_completion",
+            "{annotation_key}_price_per_example",
+            "{annotation_key}_time_per_example",
+            "{annotation_key}_version",
+            "{annotation_key}_date",
+            "{annotation_key}_raw_completion",
         ),
         other_input_keys_to_keep: Sequence[str] = (),
         is_store_missing_annotations: bool = True,
-        base_dir: Optional[utils.AnyPath] = None,
+        base_dir: Optional[Union[types.AnyPath, Sequence[types.AnyPath]]] = None,
         is_raise_if_missing_primary_keys: bool = True,
         annotation_type: Optional[Type] = None,
         is_reapply_parsing: bool = False,
+        **single_annotator_kwargs,
     ):
         logging.info(f"Creating the annotator from `{annotators_config}`.")
-        self.base_dir = Path(base_dir or self.DEFAULT_BASE_DIR)
+        base_dir = base_dir or self.DEFAULT_BASE_DIR
         self.seed = seed
         self.is_avoid_reannotations = is_avoid_reannotations
         self.primary_keys = list(primary_keys)
@@ -113,10 +122,20 @@ class BaseAnnotator(abc.ABC):
         self.annotation_type = annotation_type or self.DEFAULT_ANNOTATION_TYPE
         self.is_reapply_parsing = is_reapply_parsing
 
-        self.annotators_config = self._initialize_annotators_config(annotators_config)
-        self.annotators = self._initialize_annotators()
+        # loop over all the base_dirs until you find the annotators_config
+        if not isinstance(base_dir, (list, tuple, set)):
+            base_dir = [base_dir]
+        for d in base_dir:
+            self.base_dir = Path(d)
+            self.annotators_config = self._initialize_annotators_config(annotators_config)
+            if self.annotators_config.exists():
+                break
+
+        self.annotators = self._initialize_annotators(**single_annotator_kwargs)
         self.df_annotations = None
 
+        other_output_keys_to_keep = [c.format(annotation_key=self.annotation_key) for c in other_output_keys_to_keep]
+        other_input_keys_to_keep = [c.format(annotation_key=self.annotation_key) for c in other_input_keys_to_keep]
         self.other_input_keys_to_keep = self._get_other_input_keys_to_keep(other_input_keys_to_keep)
         self.other_output_keys_to_keep = self._get_other_output_keys_to_keep(other_output_keys_to_keep)
         self.other_keys_to_keep = self.other_output_keys_to_keep + self.other_input_keys_to_keep
@@ -140,6 +159,11 @@ class BaseAnnotator(abc.ABC):
         return "annotation"
 
     @property
+    def completion_key(self) -> str:
+        """How to refer to the raw completions, this will be the key for raw completions in the output."""
+        return f"{self.annotation_key}_raw_completion"
+
+    @property
     def random_seed_keys(self) -> list[str]:
         """What key / column to seed on for the random generator."""
         return list(self.primary_keys)
@@ -151,7 +175,7 @@ class BaseAnnotator(abc.ABC):
 
     def __call__(
         self,
-        to_annotate: utils.AnyData,
+        to_annotate: types.AnyData,
         chunksize: Optional[int] = 128,
         **decoding_kwargs,
     ) -> list[dict[str, Any]]:
@@ -207,6 +231,9 @@ class BaseAnnotator(abc.ABC):
 
     ### Private methods ###
     def _initialize_annotators_config(self, annotators_config):
+        if isinstance(annotators_config, (list, tuple)):
+            return annotators_config
+
         # setting it relative to the config directory
         annotators_config = self.base_dir / annotators_config
 
@@ -215,7 +242,7 @@ class BaseAnnotator(abc.ABC):
 
         return annotators_config
 
-    def _initialize_annotators(self) -> dict[str, "SingleAnnotator"]:
+    def _initialize_annotators(self, **kwargs) -> dict[str, "SingleAnnotator"]:
         """Load all the configs and prompts if necessary."""
         annotators_config = utils.load_configs(self.annotators_config)
         try:
@@ -229,7 +256,9 @@ class BaseAnnotator(abc.ABC):
                 seed=self.seed,
                 base_dir=base_dir,
                 annotation_column=self.annotation_key,
+                completion_column=self.completion_key,
                 **annotator_config,
+                **kwargs,
             )
             for name, annotator_config in annotators_config.items()
         }
@@ -243,7 +272,7 @@ class BaseAnnotator(abc.ABC):
             for c in missing_primary_keys:
                 df[c] = None
 
-    def _preprocess(self, to_annotate: utils.AnyData) -> pd.DataFrame:
+    def _preprocess(self, to_annotate: types.AnyData) -> pd.DataFrame:
         """Preprocess the examples to annotate. In particular takes care of filtering unnecessary examples."""
 
         df_to_annotate = utils.convert_to_dataframe(to_annotate)
@@ -299,8 +328,8 @@ class BaseAnnotator(abc.ABC):
                 ]
                 # if df_to_annotate "raw_completion" is a dict, put it back to a json string so that you can reparse it
                 # TODO: this is for backward compatibility, remove in the future
-                if "raw_completion" in df_to_annotate.columns:
-                    df_to_annotate["raw_completion"] = df_to_annotate["raw_completion"].apply(
+                if self.completion_key in df_to_annotate.columns:
+                    df_to_annotate[self.completion_key] = df_to_annotate[self.completion_key].apply(
                         lambda x: json.dumps(x) if isinstance(x, dict) else x
                     )
 
@@ -316,7 +345,7 @@ class BaseAnnotator(abc.ABC):
     def _postprocess_and_store_(
         self,
         df_annotated: pd.DataFrame,
-        to_annotate: utils.AnyData,
+        to_annotate: types.AnyData,
     ) -> list[dict[str, Any]]:
         """Convert the dataframe into a list of dictionaries to be returned, and store current anntations."""
 
@@ -476,11 +505,11 @@ class BaseAnnotatorJSON(BaseAnnotator):
     """
     )
 
-    def __init__(self, *args, caching_path: Optional[utils.AnyPath] = "auto", **kwargs):
+    def __init__(self, *args, caching_path: Optional[types.AnyPath] = "auto", **kwargs):
         super().__init__(*args, **kwargs)
         self.caching_path = self._initialize_cache(caching_path)
 
-    def save(self, path: Optional[utils.AnyPath] = None):
+    def save(self, path: Optional[types.AnyPath] = None):
         """Save all annotations to json."""
 
         path = path or self.caching_path
@@ -492,7 +521,7 @@ class BaseAnnotatorJSON(BaseAnnotator):
                 self.df_annotations = self.df_annotations[~self.df_annotations[self.annotation_key].isna()]
             self.df_annotations.to_json(path, orient="records", indent=2)
 
-    def load_(self, path: Optional[utils.AnyPath] = None):
+    def load_(self, path: Optional[types.AnyPath] = None):
         """Load all the annotations from json."""
         path = path or self.caching_path
         if path is not None:
@@ -571,11 +600,11 @@ class SingleAnnotator:
     annotation_column : str, optional
         Name of the annotation column in the output dataframe.
 
-    is_store_raw_completions : bool, optional
-        Whether to store raw completions at `"raw_completion"` column in the output dataframe. Note that raw_completion
-        will not be modified by the postprocessors. E.g. if we switch the columns output_1 and output_2 in the prompt
-        then the raw completion will show the switched order, which makes interpretation harder. This should
-        nevertheless not be an issue when using reapply_parsing because of seeding.
+    completion_column : str, optional
+        Name of the raw completion column in the output dataframe. If None will not store the raw completions. Note that
+        raw_completion will not be modified by the postprocessors. E.g. if we switch the columns output_1 and output_2
+        in the prompt then the raw completion will show the switched order, which makes interpretation harder. This
+        should nevertheless not be an issue when using reapply_parsing because of seeding.
 
     processors_to_kwargs : Sequence[dict(str, dict)], optional
         A dictionary of BaseProcessor objects to apply for preprocessing the  dataframe before making the prompts and
@@ -587,24 +616,32 @@ class SingleAnnotator:
 
     completion_key : str, optional
         Key of the output of `fn_completions` to use for parsing the completions into annotations.
+
+    packages_for_which_to_show_version : Sequence[str], optional
+        List of packages for which to show the version in the metadata of the completions.
     """
 
     def __init__(
         self,
-        prompt_template: utils.AnyPath,
-        fn_completion_parser: Optional[Union[Callable, str]] = "regex_parser",
+        prompt_template: types.AnyPath,
+        fn_completion_parser: Optional[Union[Callable, str]] = None,
         completion_parser_kwargs: Optional[dict[str, Any]] = None,
         fn_completions: Union[Callable, str] = "openai_completions",
         completions_kwargs: Optional[dict[str, Any]] = None,
         is_shuffle: bool = True,
         seed: Optional[int] = 123,
         batch_size: int = 1,
-        base_dir: utils.AnyPath = constants.EVALUATORS_CONFIG_DIR,
+        base_dir: types.AnyPath = constants.EVALUATORS_CONFIG_DIR,
         annotation_column: str = "annotation",
-        is_store_raw_completions: bool = True,
+        completion_column: Optional[str] = "raw_completion",
         processors_to_kwargs: Optional[dict[str, dict]] = None,
         is_add_default_processors: bool = True,
         completion_key: str = "completions",
+        packages_for_which_to_show_version: Optional[Sequence[str]] = ("alpaca_eval",),
+        prfx_to_completion_cols: Optional[str] = "{annotation_column}_",
+        # The following two keys are only for the documentation
+        pretty_name: Optional[str] = None,
+        link: Optional[str] = None,
     ):
         self.base_dir = Path(base_dir)
         self.prompt_template = self._get_prompt_template(prompt_template)
@@ -622,7 +659,11 @@ class SingleAnnotator:
         self.is_shuffle = is_shuffle
         self.batch_size = batch_size
         self.annotation_column = annotation_column
-        self.completion_column = "raw_completion" if is_store_raw_completions else None
+        self.completion_column = completion_column
+        self.packages_for_which_to_show_version = packages_for_which_to_show_version
+        if prfx_to_completion_cols is None:
+            prfx_to_completion_cols = ""
+        self.prfx_to_completion_cols = prfx_to_completion_cols.format(annotation_column=annotation_column)
 
         self.is_add_default_processors = is_add_default_processors
         self.processors = []
@@ -675,9 +716,14 @@ class SingleAnnotator:
             # prompts and completions here will not be the same length as the dataframe due to batching
             prompts, df_to_annotate = self._make_prompts(df_to_annotate)
             completions = self.fn_completions(prompts=prompts, **self.completions_kwargs, **decoding_kwargs)
+            self._add_metadata_to_completions_(completions)
+            completions = {
+                f"{self.prfx_to_completion_cols}{k}" if k != self.completion_key else k: v
+                for k, v in completions.items()
+            }
 
             for k, v in completions.items():
-                if k != "completions":
+                if k != self.completion_key:
                     if self.batch_size != 1 and (len(df_to_annotate) == len(v) * self.batch_size):
                         v = [el for el in v for _ in range(self.batch_size)]
                     df_to_annotate[k] = v
@@ -719,8 +765,8 @@ class SingleAnnotator:
             assert issubclass(name, processors.BaseProcessor)
             return name
 
-    def _get_prompt_template(self, prompt_template: utils.AnyPath):
-        return utils.read_or_return(self.base_dir / prompt_template)
+    def _get_prompt_template(self, prompt_template: types.AnyPath):
+        return utils.read_or_return(prompt_template, relative_to=self.base_dir)
 
     def _make_prompts(
         self, df_to_annotate: pd.DataFrame, prompt_template: Optional[str] = None
@@ -746,6 +792,12 @@ class SingleAnnotator:
         if prompt_template is None:
             prompt_template = self.prompt_template
         return utils.make_prompts(df=df_to_annotate, template=prompt_template, batch_size=self.batch_size)
+
+    def _add_metadata_to_completions_(self, completions: dict[str, Any]):
+        """Add metadata to the completions."""
+        completions["date"] = datetime.now().isoformat()
+        if self.packages_for_which_to_show_version is not None:
+            completions["version"] = utils.get_multi_package_version(self.packages_for_which_to_show_version)
 
     def _preprocess(self, df_to_annotate: pd.DataFrame) -> pd.DataFrame:
         """Preprocess the examples before annotating. In particular, takes care of all the randomization."""

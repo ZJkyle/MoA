@@ -52,9 +52,6 @@ export OPENAI_API_KEY=<OPENAI_API_KEY>
 ```
 
 ### Run AlpacaEval 2
-
-To run AlpacaEval 2, execute the following scripts:
-
 ```
 bash run_eval_alpaca_eval.sh
 ```

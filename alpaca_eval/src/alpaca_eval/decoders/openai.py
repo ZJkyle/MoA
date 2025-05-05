@@ -3,10 +3,10 @@ import functools
 import json
 import logging
 import math
-import multiprocessing
 import os
 import random
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional, Sequence, Union
 
 import numpy as np
@@ -132,10 +132,10 @@ def openai_completions(
 
     prompt_batches = [prompts[batch_id * batch_size : (batch_id + 1) * batch_size] for batch_id in range(n_batches)]
 
-    if isinstance(max_tokens, int):
-        max_tokens = [max_tokens] * n_examples
-
-    inputs = zip(prompt_batches, max_tokens)
+    try:
+        inputs = zip(prompt_batches, max_tokens)
+    except TypeError:
+        inputs = zip(prompt_batches, [max_tokens] * n_batches)
 
     kwargs = dict(model=model_name, **decoding_kwargs)
     kwargs_to_log = {k: v for k, v in kwargs.items() if "api_key" not in k}
@@ -148,11 +148,11 @@ def openai_completions(
                 for inp in tqdm.tqdm(inputs, desc="prompt_batches", total=len(prompts))
             ]
         else:
-            with multiprocessing.Pool(num_procs) as p:
+            with ThreadPoolExecutor(max_workers=num_procs) as p:
                 partial_completion_helper = functools.partial(_openai_completion_helper, **kwargs)
                 completions = list(
                     tqdm.tqdm(
-                        p.imap(partial_completion_helper, inputs),
+                        p.map(partial_completion_helper, inputs),
                         desc="prompt_batches",
                         total=len(prompts),
                     )
@@ -216,7 +216,11 @@ def _openai_completion_helper(
     client = all_clients[curr_client_idx]
 
     # copy shared_kwargs to avoid modifying it
-    kwargs.update(dict(max_tokens=max_tokens, top_p=top_p, temperature=temperature))
+    to_update = dict()
+    for k in ["max_tokens", "top_p", "temperature"]:
+        if locals()[k] is not None:
+            to_update[k] = locals()[k]
+    kwargs.update(to_update)
     curr_kwargs = copy.deepcopy(kwargs)
 
     # ensure no infinite loop
@@ -237,9 +241,14 @@ def _openai_completion_helper(
                     else:
                         choices[i]["text"] = choice.message.content
 
+                    # backward compatibility for function calls # TODO: remove once function calls are removed
                     if choice.message.function_call:
                         # currently we only use function calls to get a JSON object => return raw text of json
                         choices[i]["text"] = choice.message.function_call.arguments
+
+                    if choice.message.tool_calls:
+                        # currently we only use function calls to get a JSON object => return raw text of json
+                        choices[i]["text"] = choice.message.tool_calls[0].function.arguments
 
             else:
                 completion_batch = client.completions.create(prompt=prompt_batch, **curr_kwargs)
@@ -268,10 +277,11 @@ def _openai_completion_helper(
                 return choices
 
             else:
-                if "rate limit" in str(e).lower():
+                if "rate " in str(e).lower():
                     logging.warning(f"Hit request rate limit; retrying...")
                 else:
-                    logging.warning(f"Unknown error. \n It's likely a rate limit so we are retrying...")
+                    logging.exception("Unknown error:")
+                    raise e
                 if len(all_clients) > 1:
                     curr_client_idx = random.choice([idx for idx in client_idcs if idx != curr_client_idx])
                     client = all_clients[curr_client_idx]
@@ -290,14 +300,19 @@ def _openai_completion_helper(
 def _requires_chatml(model: str) -> bool:
     """Whether a model requires the ChatML format."""
     # TODO: this should ideally be an OpenAI function... Maybe it already exists?
-    return ("turbo" in model or "gpt-4" in model) and "instruct" not in model
+    not_chatml = ("instruct" in model) or ("gpt-3" in model and "turbo" not in model) or (model.startswith("text-"))
+    return not not_chatml
 
 
 def _get_price_per_token(model, price_per_token=None):
     """Returns the price per token for a given model"""
     if price_per_token is not None:
         return float(price_per_token)
-    if "gpt-4-turbo" in model:
+    if "gpt-4o-mini-2024-07-18" in model:
+        return (
+            0.15 / 1_000_000
+        )  # that's not completely true because decoding is 0.03 but close enough given that most is context
+    elif "gpt-4-turbo" in model:
         return 0.01 / 1000
     elif "gpt-4-1106" in model:
         return (
