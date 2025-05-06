@@ -1,5 +1,6 @@
 import logging
 from typing import Sequence
+from tqdm import tqdm
 
 import numpy as np
 
@@ -65,7 +66,8 @@ def vllm_local_completions(
         ]
 
     with utils.Timer() as t:
-        outputs = llm.generate(prompts, sampling_params)
+        outputs = llm.generate(list(tqdm(prompts)), sampling_params)
+
 
     completions = [output.outputs[0].text for output in outputs]
     price = [np.nan] * len(completions)
