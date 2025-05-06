@@ -7,8 +7,8 @@ try:
     from transformers import AutoTokenizer
 except ImportError:
     pass
-from vllm import LLM, SamplingParams
 
+from vllm import LLM, SamplingParams
 from .. import utils
 
 __all__ = ["vllm_local_completions"]
@@ -23,39 +23,21 @@ def vllm_local_completions(
     model_name: str,
     max_new_tokens: int,
     is_chatml_prompt: bool = False,
-    batch_size: int | None = None,  # default of vllm is 256
+    max_model_len: int = 4096,  # 控制 KV Cache 長度
+    tensor_parallel_size: int = 4,  # 多 GPU 開啟此參數，例如 4
+    batch_size: int | None = None,
     model_kwargs=None,
     **decoding_kwargs,
 ) -> dict[str, list]:
-    """Decode locally using vllm transformers pipeline.
-
-    Parameters
-    ----------
-    prompts : list of str
-        Prompts to get completions for.
-
-    model_name : str, optional
-        Name of the model (repo on hugging face hub)  to use for decoding.
-
-    max_new_tokens : int
-        Maximum number of tokens to generate for each prompt.
-
-    is_chatml_prompt : bool
-        Whether the prompt is given in chatML format (like OpenAI chat models). If so this will be converted to a list
-        of dict and then passed through tokenizer.apply_chat_template(prompt, add_generation_prompt=True,tokenize=False)
-        to be converted in the right chat format for that model.
-
-    batch_size : int, optional
-        Batch size to use for decoding. If None uses the default batch size of vllm.
-
-    model_kwargs : dict, optional
-        Additional kwargs to pass to `vllm.LLM` constructor.
-
-    decoding_kwargs :
-        Additional kwargs to SamplingParams
-    """
+    """Decode locally using vLLM with multi-GPU and memory-safe configs."""
     global llm, llmModelName, tokenizer
+
     model_kwargs = model_kwargs or {}
+    model_kwargs.update({
+        "dtype": "float16",  # 降低 VRAM 壓力
+        "max_model_len": max_model_len,
+        "tensor_parallel_size": tensor_parallel_size,
+    })
     if batch_size is not None:
         model_kwargs["max_num_seqs"] = batch_size
 
@@ -71,10 +53,12 @@ def vllm_local_completions(
             tokenizer = AutoTokenizer.from_pretrained(model_name)
 
     logging.info(f"Sampling kwargs: {decoding_kwargs}")
-    sampling_params = SamplingParams(max_tokens=max_new_tokens, **decoding_kwargs)
+    sampling_params = SamplingParams(
+        max_tokens=min(max_new_tokens, max_model_len),
+        **decoding_kwargs,
+    )
 
     if is_chatml_prompt:
-        # convert the linear prompt to chatml
         prompts = [
             tokenizer.apply_chat_template(utils.prompt_to_chatml(prompt), add_generation_prompt=True, tokenize=False)
             for prompt in prompts
@@ -82,6 +66,7 @@ def vllm_local_completions(
 
     with utils.Timer() as t:
         outputs = llm.generate(prompts, sampling_params)
+
     completions = [output.outputs[0].text for output in outputs]
     price = [np.nan] * len(completions)
     avg_time = [t.duration / len(prompts)] * len(completions)

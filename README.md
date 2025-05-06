@@ -46,7 +46,7 @@ pip install -r requitements.txt
 # login 
 huggingface-cli login
 
-
+`./alpaca_eval/scripts/generate_outputs_single.sh deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B`
 cd FastChat
 pip install -e ".[model_worker,llm_judge]"
 cd ..
