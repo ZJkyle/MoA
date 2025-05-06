@@ -38,13 +38,20 @@ MoA provide scripts to quickly reproduce some of the results, such as evaluation
 ### Preparation
 
 ```bash
-# install requirements
-pip install -r requirements.txt
+# install alpaca requirements
 cd alpaca_eval
 pip install -e .
+pip install -r requitements.txt
+
+# login 
+huggingface-cli login
+
+
 cd FastChat
 pip install -e ".[model_worker,llm_judge]"
 cd ..
+
+
 
 # setup api keys
 export TOGETHER_API_KEY=<TOGETHER_API_KEY>

@@ -1,7 +1,0 @@
-provider: vllm
-deployment_name: http://localhost:8000/v1
-prompt_template:
-  system: ""
-  instruction: "{instruction}"
-  input: "{input}"
-  output: "{output}"

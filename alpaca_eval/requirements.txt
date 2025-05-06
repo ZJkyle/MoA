@@ -7,3 +7,10 @@ fire
 scipy
 patsy
 scikit-learn
+accelerate
+transformers
+bitsandbytes
+xformers
+peft
+optimum
+scipy
