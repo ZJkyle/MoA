@@ -35,49 +35,46 @@ Run the script: `python bot.py`
 MoA provide scripts to quickly reproduce some of the results, such as evaluations of [AlpacaEval](https://github.com/tatsu-lab/alpaca_eval),
 [MT-Bench](https://github.com/lm-sys/FastChat), and [FLASK](https://github.com/kaistAI/FLASK).
 
-### Preparation
-
+### AlpacaEval 2
+#### Preparation
 ```bash
-# install alpaca requirements
-cd alpaca_eval
-pip install -e .
-pip install -r requitements.txt
+# setup api keys
+export TOGETHER_API_KEY=<TOGETHER_API_KEY>
+export OPENAI_API_KEY=<OPENAI_API_KEY>
+export HUGGINGFACE_TOKEN=<HUGGINGFACE_TOKEN>
 
 # login 
 huggingface-cli login
 
+# install alpaca requirements
+cd alpaca_eval
+pip install -e .
+pip install -r requirements.txt
+```
+#### Generate Outputs for single model and MoA 
+```
+Single output
 `./alpaca_eval/scripts/generate_outputs_single.sh deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B`
-cd FastChat
-pip install -e ".[model_worker,llm_judge]"
-cd ..
 
+MoA  Qwen/Qwen2.5-7B-Instruct
+// reference model
+./vllm_server.sh --model deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B --port 8000 --gpu 0
+./vllm_server.sh --model mistralai/Mistral-7B-Instruct-v0.1 --port 8001 --gpu 1
+./vllm_server.sh --model meta-llama/Llama-3.2-3B-Instruct --port 8002 --gpu 2 //Qwen 太大
+// aggregator model
+./vllm_server.sh --model meta-llama/Meta-Llama-3-8B-Instruct --port 8003 --gpu 3
 
-
-# setup api keys
-export TOGETHER_API_KEY=<TOGETHER_API_KEY>
-export OPENAI_API_KEY=<OPENAI_API_KEY>
+// Check server
+ps aux | grep vllm.entrypoints.openai.api_server
+// stop server
+./stop_vllm.sh 8000
 ```
 
-### Run AlpacaEval 2
+#### Run AlpacaEval 2
 ```
 bash run_eval_alpaca_eval.sh
 ```
 
-### Run MT-Bench
-
-For a minimal example of MT-Bench evaluation, run:
-
-```
-bash run_eval_mt_bench.sh
-```
-
-### Run FLASK
-
-For a minimal example of FLASK evaluation, run:
-
-```
-bash run_eval_flask.sh
-```
 
 ### Results
 
