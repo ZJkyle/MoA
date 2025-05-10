@@ -55,19 +55,26 @@ pip install -r requirements.txt
 ```
 Single output
 `./alpaca_eval/scripts/generate_outputs_single.sh deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B`
+deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
+mistralai/Mistral-7B-Instruct-v0.1
+Qwen/Qwen2.5-7B-Instruct
+meta-llama/Meta-Llama-3-8B-Instruct
 
-MoA  Qwen/Qwen2.5-7B-Instruct
-// reference model
+slef-MoA  
+# reference model
 ./vllm_server.sh --model deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B --port 8000 --gpu 0
-./vllm_server.sh --model mistralai/Mistral-7B-Instruct-v0.1 --port 8001 --gpu 1
-./vllm_server.sh --model meta-llama/Llama-3.2-3B-Instruct --port 8002 --gpu 2 //Qwen 太大
-// aggregator model
-./vllm_server.sh --model meta-llama/Meta-Llama-3-8B-Instruct --port 8003 --gpu 3
+./vllm_server.sh --model deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B --port 8001 --gpu 1
+./vllm_server.sh --model deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B --port 8002 --gpu 2 
+# aggregator model
+./vllm_server.sh --model deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B --port 8003 --gpu 3
 
-// Check server
+# Check server
 ps aux | grep vllm.entrypoints.openai.api_server
-// stop server
+# stop server
 ./stop_vllm.sh 8000
+
+# generate output
+python3 alpaca_eval/generate_for_alpaca_eval_vllm.py
 ```
 
 #### Run AlpacaEval 2
