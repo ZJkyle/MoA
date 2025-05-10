@@ -8,11 +8,9 @@ __pycache__/
 *.bin
 *.safetensors
 *.json
-outputs/
 checkpoints/
 models/
 FastChat/
-alpaca_eval/
 FLASK/
 
 # log / temp / notebook checkpoint
