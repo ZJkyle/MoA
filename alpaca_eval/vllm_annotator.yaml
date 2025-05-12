@@ -1,6 +1,6 @@
 vllm-annotator:              
   prompt_template: /app/prompts/annotator_prompt.txt
-  fn_completions: openai_completions
+  fn_completions: vllm_local_completions
 
   completions_kwargs:
     base_url: http://localhost:8000/v1

@@ -75,6 +75,14 @@ ps aux | grep vllm.entrypoints.openai.api_server
 
 # generate output
 python3 alpaca_eval/generate_for_alpaca_eval_vllm.py
+
+# Run vllm-annotator
+alpaca_eval \
+    --model_outputs /app/alpaca_eval/my_results/DeepSeek-R1-Distill-Qwen-1.5B/model_outputs.json \
+    --reference_outputs /app/alpaca_eval/results/gpt4_1106_preview/model_outputs.json \
+    --annotators_config /app/alpaca_eval/vllm_annotator.yaml \
+    --output_path leaderboard_results
+
 ```
 
 #### Run AlpacaEval 2
