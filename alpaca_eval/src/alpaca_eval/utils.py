@@ -157,6 +157,9 @@ def make_prompts(
                 # replace only first occurrence (that's why we don't use .format)
                 current_prompt = current_prompt.replace("{" + to_format + "}", str(df_out.iloc[i + j][to_format]), 1)
         prompts.append(current_prompt)
+    # print("=== Prompt Preview ===")
+    # print(prompts[0])
+    # print("======================") 
 
     return prompts, df_out
 

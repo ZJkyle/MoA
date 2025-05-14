@@ -1,9 +1,15 @@
-vllm-annotator:              
-  prompt_template: /app/prompts/annotator_prompt.txt
+vllm_annotator:
+  prompt_template: /app/alpaca_eval/src/alpaca_eval/evaluators_configs/alpaca_eval_clf_cot_gpt4_turbo/alpaca_eval_clf_cot.txt
   fn_completions: vllm_local_completions
-
   completions_kwargs:
-    base_url: http://localhost:8000/v1
-    api_key: null
-    model_name: /app/models/DeepSeek-R1-Distill-Qwen-1.5B
-    temperature: 0
+    model_name: /app/models/deepseek-ai_DeepSeek-R1-Distill-Qwen-1.5B
+    max_new_tokens: 512
+    is_chatml_prompt: true
+    tensor_parallel_size: 4
+    max_model_len: 4096
+  fn_completion_parser: regex_parser
+  completion_parser_kwargs:
+    outputs_to_match: ["A", "B", "tie"]  # 👈 必加這行
+  batch_size: 1
+
+

@@ -332,7 +332,8 @@ class BaseAnnotator(abc.ABC):
                     df_to_annotate[self.completion_key] = df_to_annotate[self.completion_key].apply(
                         lambda x: json.dumps(x) if isinstance(x, dict) else x
                     )
-
+                    
+            # print(df_to_annotate.loc[curr_idcs, columns_to_annotate].iloc[0])
             curr_annotated = self.annotators[annotator](
                 df_to_annotate.loc[curr_idcs, columns_to_annotate],
                 **decoding_kwargs,
